@@ -9,24 +9,26 @@ async function run() {
     const orgOgrns = await sendRequest(API.organizationList);
     const ogrns = orgOgrns.join(",");
 
-    const requisites = await sendRequest(`${API.orgReqs}?ogrn=${ogrns}`);
+    const [requisites, analytics, buh] = await Promise.all([
+        sendRequest(`${API.orgReqs}?ogrn=${ogrns}`),
+        sendRequest(`/api3/analitics?ogrn=${ogrns}`),
+        sendRequest(`${API.buhForms}?ogrn=${ogrns}`),
+    ]);
+
     const orgsMap = reqsToMap(requisites);
-
-    const analytics = await sendRequest(`${API.analytics}?ogrn=${ogrns}`);
     addInOrgsMap(orgsMap, analytics, "analytics");
-
-    const buh = await sendRequest(`${API.buhForms}?ogrn=${ogrns}`);
     addInOrgsMap(orgsMap, buh, "buhForms");
 
     render(orgsMap, orgOgrns);
 }
 
-run();
+run().catch(() => {});
 
 function sendRequest(url) {
     return fetch(url).then((response) => {
         if (!response.ok) {
-            throw new Error(`HTTP error: ${response.status} for ${url}`);
+            alert(`Ошибка ${response.status}: ${response.statusText}`);
+            throw new Error(`${response.status} ${response.statusText}`);
         }
         return response.json();
     });
@@ -80,7 +82,7 @@ function renderOrganization(orgInfo, template, container) {
                 orgInfo.buhForms[orgInfo.buhForms.length - 1].form2[0] &&
                 orgInfo.buhForms[orgInfo.buhForms.length - 1].form2[0]
                     .endValue) ||
-                0
+            0
         );
     } else {
         money.textContent = "—";
@@ -99,10 +101,10 @@ function formatMoney(money) {
     const rounded = money.toFixed(0);
     const numLen = rounded.length;
     for (let i = numLen - 3; i > 0; i -= 3) {
-        formatted = `${formatted.slice(0, i)} ${formatted.slice(i)}`;
+        formatted = `${formatted.slice(0, i)} ${formatted.slice(i)}`;
     }
 
-    return `${formatted} ₽`;
+    return `${formatted} ₽`;
 }
 
 function createAddress(address) {
