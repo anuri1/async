@@ -1,47 +1,129 @@
-const express = require("express");
+const API = {
+    organizationList: "/orgsList",
+    analytics: "/api3/analytics",
+    orgReqs: "/api3/reqBase",
+    buhForms: "/api3/buh",
+};
 
-const getBuh = require("./data/buh");
-const getAnalytics = require("./data/analytics");
-const getReqBase = require("./data/reqBase");
+async function run() {
+    const orgOgrns = await sendRequest(API.organizationList);
+    const ogrns = orgOgrns.join(",");
 
-const app = express();
-const port = 3000;
-const ORGS_LIST = [
-    "1027700092661",
-    "1026605606620",
-    "1027700070518",
-    "1037739877295",
-    "1106659003769",
-    "1130280036040",
-    "1026604939855",
-    "1115000005614",
-    "1106659013658",
-    "1027402166835",
-];
+    const requisites = await sendRequest(`${API.orgReqs}?ogrn=${ogrns}`);
+    const orgsMap = reqsToMap(requisites);
 
-app.use(express.static("static"));
+    const analytics = await sendRequest(`/api3/analitics?ogrn=${ogrns}`);
+    addInOrgsMap(orgsMap, analytics, "analytics");
 
-app.listen(port, (err) => {
-    if (err) {
-        return console.log("something bad happened", err);
+    const buh = await sendRequest(`${API.buhForms}?ogrn=${ogrns}`);
+    addInOrgsMap(orgsMap, buh, "buhForms");
+
+    render(orgsMap, orgOgrns);
+}
+
+run().catch(() => {});
+
+function sendRequest(url) {
+    return fetch(url).then((response) => {
+        if (!response.ok) {
+            alert(`Ошибка ${response.status}: ${response.statusText}`);
+            throw new Error(`${response.status} ${response.statusText}`);
+        }
+        return response.json();
+    });
+}
+
+function reqsToMap(requisites) {
+    return requisites.reduce((acc, item) => {
+        acc[item.ogrn] = item;
+        return acc;
+    }, {});
+}
+
+function addInOrgsMap(orgsMap, additionalInfo, key) {
+    for (const item of additionalInfo) {
+        orgsMap[item.ogrn][key] = item[key];
     }
+}
 
-    console.log(`server is listening on http://localhost:${port}`);
-});
+function render(organizationsInfo, organizationsOrder) {
+    const table = document.getElementById("organizations");
+    table.classList.remove("hide");
 
-app.get("/orgsList", (request, response) => {
-    response.json(ORGS_LIST);
-});
+    const template = document.getElementById("orgTemplate");
+    const container = table.querySelector("tbody");
 
-app.get("/api3/:path", (request, response) => {
-    const reqParam = request.params.path;
-    if (reqParam === "buh") {
-        response.send(getBuh(request.query));
-    } else if (reqParam === "analytics") {
-        response.send(getAnalytics(request.query));
-    } else if (reqParam === "reqBase") {
-        response.send(getReqBase(request.query));
+    organizationsOrder.forEach((item) => {
+        renderOrganization(organizationsInfo[item], template, container);
+    });
+}
+
+function renderOrganization(orgInfo, template, container) {
+    const clone = document.importNode(template.content, true);
+    const name = clone.querySelector(".name");
+    const indebtedness = clone.querySelector(".indebtedness");
+    const money = clone.querySelector(".money");
+    const address = clone.querySelector(".address");
+
+    name.textContent =
+        (orgInfo.UL && orgInfo.UL.legalName && orgInfo.UL.legalName.short) ||
+        "";
+    indebtedness.textContent = formatMoney(orgInfo.analytics.s1002 || 0);
+
+    if (
+        orgInfo.buhForms &&
+        orgInfo.buhForms.length &&
+        orgInfo.buhForms[orgInfo.buhForms.length - 1] &&
+        orgInfo.buhForms[orgInfo.buhForms.length - 1].year === 2017
+    ) {
+        money.textContent = formatMoney(
+            (orgInfo.buhForms[orgInfo.buhForms.length - 1].form2 &&
+                orgInfo.buhForms[orgInfo.buhForms.length - 1].form2[0] &&
+                orgInfo.buhForms[orgInfo.buhForms.length - 1].form2[0]
+                    .endValue) ||
+            0
+        );
     } else {
-        response.status(404).send();
+        money.textContent = "—";
     }
-});
+
+    const addressFromServer = orgInfo.UL.legalAddress.parsedAddressRF;
+    address.textContent = createAddress(addressFromServer);
+
+    container.appendChild(clone);
+}
+
+function formatMoney(money) {
+    let formatted = money.toFixed(2);
+    formatted = formatted.replace(".", ",");
+
+    const rounded = money.toFixed(0);
+    const numLen = rounded.length;
+    for (let i = numLen - 3; i > 0; i -= 3) {
+        formatted = `${formatted.slice(0, i)} ${formatted.slice(i)}`;
+    }
+
+    return `${formatted} ₽`;
+}
+
+function createAddress(address) {
+    const addressToRender = [];
+    if (address.regionName) {
+        addressToRender.push(createAddressItem("regionName"));
+    }
+    if (address.city) {
+        addressToRender.push(createAddressItem("city"));
+    }
+    if (address.street) {
+        addressToRender.push(createAddressItem("street"));
+    }
+    if (address.house) {
+        addressToRender.push(createAddressItem("house"));
+    }
+
+    return addressToRender.join(", ");
+
+    function createAddressItem(key) {
+        return `${address[key].topoShortName}. ${address[key].topoValue}`;
+    }
+}
